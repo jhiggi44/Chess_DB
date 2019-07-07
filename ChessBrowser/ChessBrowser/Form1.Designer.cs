@@ -1,8 +1,8 @@
-﻿using MySql.Data.MySqlClient;
+﻿using ChessTools;
+using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
-using ChessTools;
 
 namespace ChessBrowser {
     partial class Form1 {
@@ -35,22 +35,24 @@ namespace ChessBrowser {
             // For example, one iteration of your main upload loop could be one work step
             SetNumWorkItems(games.Count);
 
+            Console.WriteLine(games.Count + " total games...");
 
             using (MySqlConnection conn = new MySqlConnection(connection)) {
                 try {
                     // Open a connection
                     conn.Open();
 
+                    int i = 1;
                     // TODO: iterate through your data and generate appropriate insert commands
                     foreach (ChessGame g in games) {
                         insertIntoEvents(conn, g);
                         insertIntoPlayers(conn, g);
                         insertIntoGames(conn, g);
+                        // Use this to tell the GUI that one work step has completed:
+                        WorkStepCompleted();
+                        Console.WriteLine(i + " game finished");
+                        i++;
                     }
-
-                    // Use this to tell the GUI that one work step has completed:
-                    WorkStepCompleted();
-
                 }
                 catch (Exception e) {
                     Console.WriteLine(e.Message);
@@ -60,104 +62,128 @@ namespace ChessBrowser {
         }
 
         /// <summary>
-        /// TODO!!!
+        /// This function inserts a Game object into the Events table of the database.
         /// </summary>
+        /// <param name="conn">The connection to the database</param>
+        /// <param name="game">The game to add to the Events table</param>
         private void insertIntoEvents(MySqlConnection conn, ChessGame game) {
-            MySqlCommand comm = new MySqlCommand("select Name, Date from Events where Name = @Name and Date = @Date", conn);
-
-            comm.Parameters.AddWithValue("@Name", game.Event);
-            comm.Parameters.AddWithValue("@Date", game.EventDate);
-
-            MySqlDataReader reader = comm.ExecuteReader();
-            if (!reader.HasRows) {
-                reader.Close();
-                //Console.WriteLine("new event");
-                comm = new MySqlCommand("insert ignore into Events (Name, Site, Date) values (@Name, @Site, @Date)", conn);
+            using (MySqlCommand comm = new MySqlCommand("select Name, Date from Events where Name = @Name and Date = @Date", conn)) {
                 comm.Parameters.AddWithValue("@Name", game.Event);
-                comm.Parameters.AddWithValue("@Site", game.Site);
                 comm.Parameters.AddWithValue("@Date", game.EventDate);
-                comm.ExecuteNonQuery();
+                using (MySqlDataReader reader = comm.ExecuteReader()) {
+                    if (!reader.HasRows) {
+                        reader.Close();
+                        //Console.WriteLine("new event");
+                        comm.CommandText = "insert ignore into Events (Name, Site, Date) values (@Name, @Site, @Date)";
+                        comm.Parameters.AddWithValue("@Site", game.Site);
+                        comm.ExecuteNonQuery();
+                    }
+                    else {
+                        reader.Close();
+                    }
+                }
             }
-            else {
-                reader.Close();
-            }
-        }
-
-        private int getPlayerID(MySqlConnection conn, string name) {
-            MySqlCommand comm = new MySqlCommand("select pID from Players where Name = @Name", conn);
-            comm.Parameters.AddWithValue("@Name", name);
-            MySqlDataReader reader = comm.ExecuteReader();
-            reader.Read();
-            int ret = reader.GetInt32(0);
-            reader.Close();
-            return ret;
         }
 
         /// <summary>
-        /// TODO!!!
+        /// Given a player's name, this function gets the corresponding PlayerID from the Players table.
         /// </summary>
+        /// <param name="conn">The connection to the database</param>
+        /// <param name="name">The name of the player</param>
+        private int getPlayerID(MySqlConnection conn, string name) {
+            using (MySqlCommand comm = new MySqlCommand("select pID from Players where Name = @Name", conn)) {
+                comm.Parameters.AddWithValue("@Name", name);
+                using (MySqlDataReader reader = comm.ExecuteReader()) {
+                    reader.Read();
+                    int ret = reader.GetInt32(0);
+                    reader.Close();
+                    return ret;
+                }
+            }
+        }
+
+        /// <summary>
+        /// This function inserts a Game object into the Games table of the database.
+        /// </summary>
+        /// <param name="conn">The connection to the database</param>
+        /// <param name="game">The game to add to the Games table</param>
         private void insertIntoGames(MySqlConnection conn, ChessGame game) {
             // check Events table and get eID
-            MySqlCommand comm = new MySqlCommand("select eID from Events where Name = @Name and Date = @Date", conn);
-            comm.Parameters.AddWithValue("@Name", game.Event);
-            comm.Parameters.AddWithValue("@Date", game.EventDate);
-            MySqlDataReader reader = comm.ExecuteReader();
-            if (reader.HasRows) {
-                reader.Read();
-                int eID = reader.GetInt32(0);
-                reader.Close();
-                int bpID = getPlayerID(conn, game.BlackPlayer);
-                int wpID = getPlayerID(conn, game.WhitePlayer);
-                comm.CommandText = "select * from Games where eID = @eID and BlackPlayer = @BlackPlayer and WhitePlayer = @WhitePlayer";
-                comm.Parameters.AddWithValue("@eID", eID);
-                comm.Parameters.AddWithValue("@BlackPlayer", bpID);
-                comm.Parameters.AddWithValue("@WhitePlayer", wpID);
-                reader = comm.ExecuteReader();
-                if (!reader.HasRows) {
-                    reader.Close();
-                    comm.CommandText = "insert into Games (Result, Moves, BlackPlayer, WhitePlayer, eID) values (@Result, @Moves, @BlackPlayer, @WhitePlayer, @eID)";
-                    comm.Parameters.AddWithValue("@Result", game.Result);
-                    comm.Parameters.AddWithValue("@Moves", game.Moves);
-                    comm.ExecuteNonQuery();
+            using (MySqlCommand comm = new MySqlCommand("select eID from Events where Name = @Name and Date = @Date", conn)) {
+                comm.Parameters.AddWithValue("@Name", game.Event);
+                comm.Parameters.AddWithValue("@Date", game.EventDate);
+                using (MySqlDataReader reader = comm.ExecuteReader()) {
+                    if (reader.HasRows) {
+                        reader.Read();
+                        int eID = reader.GetInt32(0);
+                        reader.Close();
+                        int bpID = getPlayerID(conn, game.BlackPlayer);
+                        int wpID = getPlayerID(conn, game.WhitePlayer);
+                        comm.CommandText = "select * from Games where eID = @eID and BlackPlayer = @BlackPlayer and WhitePlayer = @WhitePlayer";
+                        comm.Parameters.AddWithValue("@eID", eID);
+                        comm.Parameters.AddWithValue("@BlackPlayer", bpID);
+                        comm.Parameters.AddWithValue("@WhitePlayer", wpID);
+                        using (MySqlDataReader reader2 = comm.ExecuteReader()) {
+                            if (!reader2.HasRows) {
+                                reader2.Close();
+                                comm.CommandText = "insert into Games (Result, Moves, BlackPlayer, WhitePlayer, eID) values (@Result, @Moves, @BlackPlayer, @WhitePlayer, @eID)";
+                                comm.Parameters.AddWithValue("@Result", game.Result);
+                                comm.Parameters.AddWithValue("@Moves", game.Moves);
+                                comm.ExecuteNonQuery();
+                            }
+                            reader2.Close();
+                        }
+                    }
+                    else {
+                        reader.Close();
+                        Console.WriteLine("No Event eID...\n");
+                    }
                 }
-                reader.Close();
-            } else {
-                reader.Close();
-                Console.WriteLine("No Event eID...\n");
-            }
-
-            // make sure a game with the black player and white player isn't in the database under this event
-        }
-
-        private void addPlayer(MySqlConnection conn, string player, int elo) {
-            MySqlCommand comm = new MySqlCommand("select Elo from Players where Name = @Name", conn);
-            comm.Parameters.AddWithValue("@Name", player);
-            MySqlDataReader reader = comm.ExecuteReader();
-            if (!reader.HasRows) {
-                reader.Close();
-                comm.CommandText = "insert ignore into Players (Name, Elo) values (@Name, @Elo)";
-                comm.Parameters.AddWithValue("@Elo", elo);
-                comm.ExecuteNonQuery();
-            }
-            else {
-                reader.Read();
-                if (reader.GetInt32(0) < elo) {
-                    reader.Close();
-                    comm.CommandText = "update Players p set Elo = @Elo where p.Name = @Name";
-                    comm.ExecuteNonQuery();
-                    Console.WriteLine("updating Elo\n");
-                }
-                reader.Close();
             }
         }
 
         /// <summary>
-        /// TODO!!!
+        /// This function adds a player to the Players table. Can handle both black and white players. 
         /// </summary>
+        /// <param name="conn">The connection to the database</param>
+        /// <param name="player">The player to add to the Players table</param>
+        /// <param name="elo">The elo rating of the player</param>
+        private void addPlayer(MySqlConnection conn, string player, int elo) {
+            using (MySqlCommand comm = new MySqlCommand("select Elo from Players where Name = @Name", conn)) {
+                comm.Parameters.AddWithValue("@Name", player);
+                using (MySqlDataReader reader = comm.ExecuteReader()) {
+                    if (!reader.HasRows) {
+                        reader.Close();
+                        comm.CommandText = "insert ignore into Players (Name, Elo) values (@Name, @Elo)";
+                        comm.Parameters.AddWithValue("@Elo", elo);
+                        comm.ExecuteNonQuery();
+                    }
+                    else {
+                        reader.Read();
+                        if (reader.GetInt32(0) < elo) {
+                            reader.Close();
+                            using (MySqlCommand nonQuery = new MySqlCommand("update Players p set Elo = @Elo where p.Name = @Name", conn)) {
+                                nonQuery.Parameters.AddWithValue("@Elo", elo);
+                                nonQuery.Parameters.AddWithValue("@Name", player);
+                                nonQuery.ExecuteNonQuery();
+                            }
+                        }
+                        reader.Close();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// This function adds both the players (black and white) from a game to the Players table.
+        /// </summary>
+        /// <param name="conn">The connection to the database</param>
+        /// <param name="game">The game to add to the Players table</param>
         private void insertIntoPlayers(MySqlConnection conn, ChessGame game) {
             addPlayer(conn, game.BlackPlayer, game.BlackElo);
             addPlayer(conn, game.WhitePlayer, game.WhiteElo);
         }
+
 
 
         /// <summary>
@@ -191,10 +217,72 @@ namespace ChessBrowser {
                     // Open a connection
                     conn.Open();
 
-                    // TODO: Generate and execute an SQL command,
-                    //       then parse the results into an appropriate string
-                    //       and return it.
-                    //       Remember that the returned string must use \r\n newlines
+                    string query = "select EventName, Site, Date, WhiteName, black.Name as BlackName, Result from "
+                    + "(select games.Name as EventName, games.Site, games.Date, w.Name as WhiteName, games.BlackPlayer, games.Result from "
+                    + "(select * from Games g natural join Events e ";
+                    if (showMoves) {
+                        query = "select EventName, Site, Date, WhiteName, black.Name as BlackName, Result, Moves from "
+                    + "(select games.Name as EventName, games.Site, games.Date, w.Name as WhiteName, games.BlackPlayer, games.Result, games.Moves from "
+                    + "(select * from Games g natural join Events e ";
+                    }
+
+                    using (MySqlCommand comm = new MySqlCommand(query, conn)) {
+                        bool isFirst = true;
+                        if (winner != "" || useDate || showMoves) {
+                            if (winner != "") {
+                                comm.CommandText += "where g.Result = @Result ";
+                                comm.Parameters.AddWithValue("@Result", winner.Substring(0, 1));
+                                isFirst = false;
+                            }
+                            if (useDate) {
+                                if (isFirst) {
+                                    comm.CommandText += "where e.Date >= @Start and e.Date <= @End ";
+                                    isFirst = false;
+                                } else {
+                                    comm.CommandText += "and e.Date >= @Start and e.Date <= @End ";
+                                }
+                                comm.Parameters.AddWithValue("@End", end);
+                                comm.Parameters.AddWithValue("@Start", start);
+                            }
+                            if (showMoves) { 
+                                if (isFirst) {
+                                    comm.CommandText += "where g.Moves like @Move ";
+                                } else {
+                                    comm.CommandText += "and g.Moves like @Move ";
+                                }
+                                
+                                comm.Parameters.AddWithValue("@Move", opening + "%");
+                            }
+                        }
+
+                        comm.CommandText += ") games join Players w where w.pID = games.WhitePlayer ";
+                        if (white != "") {
+                            comm.CommandText += "and w.Name = @WhitePlayer";
+                            comm.Parameters.AddWithValue("@WhitePlayer", white);
+                        }
+
+                        comm.CommandText += ") white join Players black where black.pID = white.BlackPlayer";
+                        if (black != "") {
+                            comm.CommandText += " and black.Name = @BlackPlayer";
+                            comm.Parameters.AddWithValue("@BlackPlayer", black);
+                        }
+
+                        using (MySqlDataReader reader = comm.ExecuteReader()) {
+                            while (reader.Read()) {
+                                parsedResult += "Event: " + reader[0] + "\r\n";
+                                parsedResult += "Site: " + reader[1] + "\r\n";
+                                parsedResult += "Date: " + reader[2] + "\r\n";
+                                parsedResult += "White: " + reader[3] + "\r\n";
+                                parsedResult += "Black: " + reader[4] + "\r\n";
+                                parsedResult += "Result: " + reader[5] + "\r\n";
+                                if (showMoves) {
+                                    parsedResult += "Moves: " + reader[6] + "\r\n";
+                                }
+                                parsedResult += "\r\n";
+                                numRows++;
+                            }
+                        }
+                    }
                 }
                 catch (Exception e) {
                     Console.WriteLine(e.Message);
